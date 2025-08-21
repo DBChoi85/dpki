@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_file, after_this_request, abort
+from flask import Flask, request, jsonify, send_file, after_this_request, abort, Response
 from werkzeug.utils import secure_filename
 from cryptography import x509
 from cryptography.x509.oid import NameOID
@@ -66,56 +66,39 @@ def load_ca():
     return private_key, cert
 
 # 3. CSR submission endpoint
-@app.route('/sign', methods=['POST'])
-def sign_csr():
-    csr_pem = request.files['csr'].read()
+@app.post("/sign")
+def sign():
+    private_key, cert = load_ca()
+    # CSR 파일 확인
+    file = request.files.get("csr")
+    if not file:
+        return abort(400, "missing csr file")
 
     try:
+        csr_pem = file.read()
         csr = x509.load_pem_x509_csr(csr_pem)
-    except ValueError:
-        return "Invalid CSR format", 400
+    except Exception:
+        return abort(400, "invalid csr format")
 
-    # 1. 서명 유효성 확인
+    # 간단 검증 (필요 시 정책 검증 추가)
     if not csr.is_signature_valid:
-        return "Invalid CSR signature", 400
+        return abort(400, "CSR signature invalid")
 
-    # 2. Subject 필드 확인
-    required_oids = [NameOID.COMMON_NAME, NameOID.COUNTRY_NAME]
-    subject_oids = [attr.oid for attr in csr.subject]
-    for oid in required_oids:
-        if oid not in subject_oids:
-            return f"Missing required subject field: {oid._name}", 400
+    # 인증서 발급
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(csr.subject)
+        .issuer_name(cert.subject)
+        .public_key(csr.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(datetime.now(timezone.utc))
+        .not_valid_after(datetime.now(timezone.utc) + timedelta(days=365))  # 1년 유효
+        .sign(private_key, hashes.SHA256())
+    )
+    cert_pem = cert.public_bytes(serialization.Encoding.PEM)
 
-    # 3. 도메인 필터링 (예: 허용된 도메인만 발급)
-    cn_attr = csr.subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0]
-    common_name = cn_attr.value
-    if not common_name.endswith(".mycompany.com"):
-        return "Only *.mycompany.com domains are allowed", 403
-
-    # 4. 키 사이즈 검사
-    public_key = csr.public_key()
-    if isinstance(public_key, rsa.RSAPublicKey):
-        if public_key.key_size < 2048:
-            return "Key size too small. Minimum 2048 bits required.", 400
-
-    # 5. 서명 및 발급
-    private_key, ca_cert = load_ca()
-    cert = x509.CertificateBuilder().subject_name(
-        csr.subject
-    ).issuer_name(
-        ca_cert.subject
-    ).public_key(
-        csr.public_key()
-    ).serial_number(
-        x509.random_serial_number()
-    ).not_valid_before(
-        datetime.now(timezone.utc)
-    ).not_valid_after(
-        datetime.now(timezone.utc) + timedelta(days=365)
-    ).sign(private_key, hashes.SHA256())
-
-    return cert.public_bytes(serialization.Encoding.PEM), 200, {'Content-Type': 'application/x-pem-file'}
-
+    # 인증서 PEM 반환
+    return Response(cert_pem, mimetype="application/x-pem-file")
 # 4. CA Certificate download
 @app.route('/ca-cert', methods=['GET'])
 def get_ca_cert():
@@ -160,7 +143,7 @@ def get_key():
     # 3) CA 서버에 CSR 제출 → cert PEM 수신
     #    multipart 업로드 형식 (필요시 필드명/엔드포인트 맞춰 조정)
     resp = requests.post(
-        "http://localhost:5000/sign",
+        "http://localhost:5003/sign",
         files={"csr": ("request.csr", csr_pem, "application/pkcs10")}
     )
     if resp.status_code != 200:
@@ -184,4 +167,4 @@ def get_key():
     
 if __name__ == '__main__':
     create_ca()
-    app.run(host="0.0.0.0", port=5000)
+    app.run(host="0.0.0.0", port=5003)
