@@ -6,6 +6,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.asymmetric import padding
 from datetime import datetime, timedelta, timezone
 import tempfile
+import requests
 import os
 
 app = Flask(__name__)
@@ -126,6 +127,21 @@ def get_key():
                             encryption_algorithm=serialization.NoEncryption())
     
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pem")
+    contry_name = request.args.get("contry_name")
+    province_name = request.args.get('province_name')
+    local_name = request.args.get('local_name')
+    org_name = request.args.get('org_name')
+    common_name = request.args.get('common_name')
+    subject = x509.Name([
+        x509.NameAttribute(NameOID.COUNTRY_NAME, contry_name),
+        x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, province_name),
+        x509.NameAttribute(NameOID.LOCALITY_NAME, local_name),
+        x509.NameAttribute(NameOID.ORGANIZATION_NAME, org_name),
+        x509.NameAttribute(NameOID.COMMON_NAME, common_name),
+    ])
+
+    csr = x509.CertificateSigningRequestBuilder().subject_name(subject).sign(pem, hashes.SHA256())
+
     try:
         tmp.write(pem)
         tmp_path = tmp.name
@@ -136,6 +152,8 @@ def get_key():
     def remove_file(response):
         try:
             os.remove(tmp_path)
+            csr_bytes = csr.public_bytes(serialization.Encoding.PEM)
+            requests.post('http:localhost:5000/sign', files=csr_bytes)
         except Exception as e:
             app.logger.warning(f"temp delete failed: {e}")
         return response
@@ -150,14 +168,20 @@ def get_key():
 
 @app.route("/request_csr", methods=['POST'])
 def request_csr():
-    
+    contry_name = request.args.get("contry_name")
+    province_name = request.args.get('province_name')
+    local_name = request.args.get('local_name')
+    org_name = request.args.get('org_name')
+    common_name = request.args.get('common_name')
     subject = x509.Name([
-        x509.NameAttribute(NameOID.COUNTRY_NAME, u"KR"),
-        x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, u"Seoul"),
-        x509.NameAttribute(NameOID.LOCALITY_NAME, u"Gangnam"),
-        x509.NameAttribute(NameOID.ORGANIZATION_NAME, u"MyCompany Inc."),
-        x509.NameAttribute(NameOID.COMMON_NAME, u"client1.mycompany.com"),
+        x509.NameAttribute(NameOID.COUNTRY_NAME, contry_name),
+        x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, province_name),
+        x509.NameAttribute(NameOID.LOCALITY_NAME, local_name),
+        x509.NameAttribute(NameOID.ORGANIZATION_NAME, org_name),
+        x509.NameAttribute(NameOID.COMMON_NAME, common_name),
     ])
+
+
     
 if __name__ == '__main__':
     create_ca()
