@@ -142,7 +142,7 @@ def get_key():
         x509.NameAttribute(NameOID.COMMON_NAME, common_name),
     ])
 
-    csr = x509.CertificateSigningRequestBuilder().subject_name(subject).sign(pem, hashes.SHA256())
+    csr = x509.CertificateSigningRequestBuilder().subject_name(subject).sign(key, hashes.SHA256())
 
     try:
         tmp.write(pem)
@@ -155,7 +155,7 @@ def get_key():
         try:
             os.remove(tmp_path)
             csr_bytes = csr.public_bytes(serialization.Encoding.PEM)
-            requests.post('http:localhost:5000/sign', files=csr_bytes)
+            requests.post('http://localhost:5000/sign', files=csr_bytes)
         except Exception as e:
             app.logger.warning(f"temp delete failed: {e}")
         return response
@@ -167,24 +167,7 @@ def get_key():
         download_name=f"{username}.pem"
     )
 
-
-@app.route("/request_csr", methods=['POST'])
-def request_csr():
-    contry_name = request.args.get("contry_name")
-    province_name = request.args.get('province_name')
-    local_name = request.args.get('local_name')
-    org_name = request.args.get('org_name')
-    common_name = request.args.get('common_name')
-    subject = x509.Name([
-        x509.NameAttribute(NameOID.COUNTRY_NAME, contry_name),
-        x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, province_name),
-        x509.NameAttribute(NameOID.LOCALITY_NAME, local_name),
-        x509.NameAttribute(NameOID.ORGANIZATION_NAME, org_name),
-        x509.NameAttribute(NameOID.COMMON_NAME, common_name),
-    ])
-
-
     
 if __name__ == '__main__':
     create_ca()
-    app.run(port=5000)
+    app.run(host="0.0.0.0", port=5000)
