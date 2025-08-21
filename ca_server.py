@@ -120,20 +120,22 @@ def get_ca_cert():
 
 @app.route('/get_key', methods=['POST'])
 def get_key():
-    username = request.args.get("username")
+    r = request.get_json()
+    username = r["common_name"]
+    print(username)
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     pem = key.private_bytes(encoding=serialization.Encoding.PEM, 
                             format=serialization.PrivateFormat.TraditionalOpenSSL, 
                             encryption_algorithm=serialization.NoEncryption())
     
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pem")
-    contry_name = request.args.get("contry_name")
-    province_name = request.args.get('province_name')
-    local_name = request.args.get('local_name')
-    org_name = request.args.get('org_name')
-    common_name = request.args.get('common_name')
+    country_name = r["country_name"]
+    province_name = r['province_name']
+    local_name = r['local_name']
+    org_name = r['org_name']
+    common_name = r['common_name']
     subject = x509.Name([
-        x509.NameAttribute(NameOID.COUNTRY_NAME, contry_name),
+        x509.NameAttribute(NameOID.COUNTRY_NAME, country_name),
         x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, province_name),
         x509.NameAttribute(NameOID.LOCALITY_NAME, local_name),
         x509.NameAttribute(NameOID.ORGANIZATION_NAME, org_name),
