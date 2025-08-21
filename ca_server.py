@@ -1,10 +1,11 @@
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_file, after_this_request
 from cryptography import x509
 from cryptography.x509.oid import NameOID
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.asymmetric import padding
 from datetime import datetime, timedelta, timezone
+import tempfile
 import os
 
 app = Flask(__name__)
@@ -115,6 +116,49 @@ def sign_csr():
 def get_ca_cert():
     return send_file(CA_CERT_FILE, mimetype='application/x-pem-file')
 
+
+@app.route('/get_key', methods=['POST'])
+def get_key():
+    username = request.args.get("username")
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    pem = key.private_bytes(encoding=serialization.Encoding.PEM, 
+                            format=serialization.PrivateFormat.TraditionalOpenSSL, 
+                            encryption_algorithm=serialization.NoEncryption())
+    
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pem")
+    try:
+        tmp.write(pem)
+        tmp_path = tmp.name
+    finally:
+        tmp.close()
+
+    @after_this_request
+    def remove_file(response):
+        try:
+            os.remove(tmp_path)
+        except Exception as e:
+            app.logger.warning(f"temp delete failed: {e}")
+        return response
+
+    return send_file(
+        tmp_path,
+        mimetype="application/x-pem-file",
+        as_attachment=True,
+        download_name=f"{username}.pem"
+    )
+
+
+@app.route("/request_csr", methods=['POST'])
+def request_csr():
+    
+    subject = x509.Name([
+        x509.NameAttribute(NameOID.COUNTRY_NAME, u"KR"),
+        x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, u"Seoul"),
+        x509.NameAttribute(NameOID.LOCALITY_NAME, u"Gangnam"),
+        x509.NameAttribute(NameOID.ORGANIZATION_NAME, u"MyCompany Inc."),
+        x509.NameAttribute(NameOID.COMMON_NAME, u"client1.mycompany.com"),
+    ])
+    
 if __name__ == '__main__':
     create_ca()
     app.run(port=5000)
