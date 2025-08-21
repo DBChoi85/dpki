@@ -154,7 +154,7 @@ def get_key():
     def remove_file(response):
         try:
             os.remove(tmp_path)
-            csr_bytes = csr.public_bytes(serialization.Encoding.PEM)
+            csr_bytes = {'csr': csr.public_bytes(serialization.Encoding.PEM)}
             requests.post('http://localhost:5000/sign', files=csr_bytes)
         except Exception as e:
             app.logger.warning(f"temp delete failed: {e}")
