@@ -1,4 +1,5 @@
-from flask import Flask, request, jsonify, send_file, after_this_request
+from flask import Flask, request, jsonify, send_file, after_this_request, abort
+from werkzeug.utils import secure_filename
 from cryptography import x509
 from cryptography.x509.oid import NameOID
 from cryptography.hazmat.primitives import serialization, hashes
@@ -8,6 +9,9 @@ from datetime import datetime, timedelta, timezone
 import tempfile
 import requests
 import os
+import io
+import zipfile
+
 
 app = Flask(__name__)
 
@@ -118,55 +122,65 @@ def get_ca_cert():
     return send_file(CA_CERT_FILE, mimetype='application/x-pem-file')
 
 
-@app.route('/get_key', methods=['POST'])
+@app.post("/get_key")
 def get_key():
-    r = request.get_json()
-    username = r["common_name"]
-    print(username)
-    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    pem = key.private_bytes(encoding=serialization.Encoding.PEM, 
-                            format=serialization.PrivateFormat.TraditionalOpenSSL, 
-                            encryption_algorithm=serialization.NoEncryption())
-    
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pem")
-    country_name = r["country_name"]
-    province_name = r['province_name']
-    local_name = r['local_name']
-    org_name = r['org_name']
-    common_name = r['common_name']
-    subject = x509.Name([
-        x509.NameAttribute(NameOID.COUNTRY_NAME, country_name),
-        x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, province_name),
-        x509.NameAttribute(NameOID.LOCALITY_NAME, local_name),
-        x509.NameAttribute(NameOID.ORGANIZATION_NAME, org_name),
-        x509.NameAttribute(NameOID.COMMON_NAME, common_name),
-    ])
-
-    csr = x509.CertificateSigningRequestBuilder().subject_name(subject).sign(key, hashes.SHA256())
-
+    r = request.get_json(silent=True) or {}
     try:
-        tmp.write(pem)
-        tmp_path = tmp.name
-    finally:
-        tmp.close()
+        country_name = r["country_name"]
+        province_name = r["province_name"]
+        local_name = r["local_name"]
+        org_name = r["org_name"]
+        common_name = r["common_name"]
+    except KeyError as e:
+        return abort(400, f"missing field: {e}")
 
-    @after_this_request
-    def remove_file(response):
-        try:
-            os.remove(tmp_path)
-            csr_bytes = {'csr': csr.public_bytes(serialization.Encoding.PEM)}
-            requests.post('http://localhost:5000/sign', files=csr_bytes)
-        except Exception as e:
-            app.logger.warning(f"temp delete failed: {e}")
-        return response
+    safe = secure_filename(common_name) or "client"
 
-    return send_file(
-        tmp_path,
-        mimetype="application/x-pem-file",
-        as_attachment=True,
-        download_name=f"{username}.pem"
+    # 1) 개인키 생성
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+    # 운영 시엔 PKCS#8 + 암호화 권장 (BestAvailableEncryption)
+    key_pem = key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.TraditionalOpenSSL,  # PKCS#1(RSA) - 필요시 PKCS8로 변경 가능
+        encryption_algorithm=serialization.NoEncryption()
     )
 
+    # 2) CSR 생성
+    subject = x509.Name([
+        x509.NameAttribute(x509.NameOID.COUNTRY_NAME, country_name),
+        x509.NameAttribute(x509.NameOID.STATE_OR_PROVINCE_NAME, province_name),
+        x509.NameAttribute(x509.NameOID.LOCALITY_NAME, local_name),
+        x509.NameAttribute(x509.NameOID.ORGANIZATION_NAME, org_name),
+        x509.NameAttribute(x509.NameOID.COMMON_NAME, common_name),
+    ])
+    csr = x509.CertificateSigningRequestBuilder().subject_name(subject).sign(key, hashes.SHA256())
+    csr_pem = csr.public_bytes(serialization.Encoding.PEM)
+
+    # 3) CA 서버에 CSR 제출 → cert PEM 수신
+    #    multipart 업로드 형식 (필요시 필드명/엔드포인트 맞춰 조정)
+    resp = requests.post(
+        "http://localhost:5000/sign",
+        files={"csr": ("request.csr", csr_pem, "application/pkcs10")}
+    )
+    if resp.status_code != 200:
+        return abort(502, f"CA sign failed: {resp.status_code}")
+    cert_pem = resp.content  # PEM 형식 인증서
+
+    # 4) 메모리에서 ZIP 구성 (개인키 + 인증서)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr(f"{safe}.key.pem", key_pem)
+        z.writestr(f"{safe}.crt.pem", cert_pem)
+        # 필요하면 체인도 추가: z.writestr(f"{safe}-chain.crt.pem", chain_pem)
+
+    buf.seek(0)
+    return send_file(
+        buf,
+        mimetype="application/zip",
+        as_attachment=True,
+        download_name=f"{safe}_key_and_cert.zip"
+    )
     
 if __name__ == '__main__':
     create_ca()
