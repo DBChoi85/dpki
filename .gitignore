@@ -1,0 +1,28 @@
+# Secrets / local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+keystore/
+keys/
+
+# Generated deployment artifacts may contain network/account metadata
+build/
+
+# Benchmark outputs and local databases
+results*/
+workload*/
+*.sqlite3
+*.db
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
