@@ -47,8 +47,26 @@ def main():
     mismatching_root=Web3.keccak(text='DPKI-NEGATIVE-TEST-MISMATCHING-ROOT')
 
     before=contract.functions.getCommitment(domain_id).call()
+
+    # Make the negative test repeatable. A prior expected mismatch leaves the
+    # proposal pending because the reverting validation transaction cannot
+    # delete state created by the earlier proposal transaction.
+    pending=contract.functions.getPendingCommitment(domain_id).call()
+    if pending[4]:
+        pending_updater=pending[3]
+        print(f'Existing pending proposal detected for {args.domain}')
+        print(f'  pending updater : {pending_updater}')
+        if pending_updater.lower()!=updater.address.lower():
+            sys.exit('FAIL: pending proposal belongs to a different updater; use another domain or clear it with that updater')
+        cleanup=send_transaction(w3, contract.functions.cancelPendingCommitment(domain_id), updater)
+        if cleanup.status != 1:
+            sys.exit('FAIL: could not clear existing pending proposal')
+        print('  cleanup         : SUCCESS')
+
     proposal=send_transaction(w3, contract.functions.proposeCommitment(domain_id, proposed_root,100,5), updater)
-    if proposal.status != 1: sys.exit('FAIL: proposeCommitment transaction failed')
+    if proposal.status != 1:
+        pending=contract.functions.getPendingCommitment(domain_id).call()
+        sys.exit(f'FAIL: proposeCommitment transaction failed; pending_exists={pending[4]}, pending_updater={pending[3]}')
 
     rejected=False
     try:
@@ -59,9 +77,19 @@ def main():
 
     after=contract.functions.getCommitment(domain_id).call()
     unchanged=tuple(before)==tuple(after)
+
+    # The expected validation revert leaves C_D pending. Clean it up so the
+    # same negative test can be executed repeatedly with the same domain.
+    pending=contract.functions.getPendingCommitment(domain_id).call()
+    cleanup_ok=True
+    if pending[4]:
+        cleanup=send_transaction(w3, contract.functions.cancelPendingCommitment(domain_id), updater)
+        cleanup_ok=(cleanup.status==1)
+
     print(f'Mismatch rejected       : {rejected}')
     print(f'Anchored state unchanged: {unchanged}')
-    if rejected and unchanged:
+    print(f'Pending state cleaned   : {cleanup_ok}')
+    if rejected and unchanged and cleanup_ok:
         print('PASS')
         return 0
     print('FAIL')
