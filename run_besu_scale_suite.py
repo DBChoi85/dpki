@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-import argparse,subprocess,sys
+import argparse,os,subprocess,sys
 from pathlib import Path
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument("--repeats",type=int,default=10); ap.add_argument("--queries",type=int,default=5000)
     ap.add_argument("--warmup",type=int,default=500); ap.add_argument("--output",default="results/besu_scale")
-    ap.add_argument("--rpc",default=None); ap.add_argument("--artifact",default="build/DPKICommitmentRegistry.json"); args=ap.parse_args()
+    ap.add_argument("--rpc",default=os.getenv("BESU_RPC_URL")); ap.add_argument("--artifact",default="build/DPKICommitmentRegistry.json"); args=ap.parse_args()
+    if not args.rpc: raise SystemExit("Besu RPC required: use --rpc or set BESU_RPC_URL")
     for n in (100,1000,10000,100000):
         workload=f"workload_{n}"
         if not Path(workload).exists(): raise SystemExit(f"Missing {workload}")
