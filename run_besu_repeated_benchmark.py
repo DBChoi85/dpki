@@ -75,7 +75,7 @@ def main():
         domain = f"{args.domain_prefix}-run-{i:02d}"
         run_dir = out / f"run_{i:02d}"
         cmd = [
-            sys.executable, "run_dpki_benchmark.py",
+            sys.executable, "run_besu_commitment_benchmark.py",
             "--workload", args.workload,
             "--queries", str(args.queries),
             "--warmup", str(args.warmup),
@@ -93,9 +93,7 @@ def main():
             raise SystemExit(f"Run {i} failed with exit code {result.returncode}")
 
         init = read_metric_csv(run_dir / "initialization_metrics.csv")
-        verify = read_summary(run_dir / "summary_verification_queries.csv")
         all_init.append(init)
-        all_verify.append(verify)
         print(
             f"[{i}/{args.repeats}] done in {time.perf_counter()-run0:.2f}s | "
             f"proposal={init.get('besu_proposal_confirmation_ms', float('nan')):.2f} ms | "
@@ -111,7 +109,7 @@ def main():
         "besu_validation_confirmation_ms",
         "besu_proposal_gas_used",
         "besu_validation_gas_used",
-        "initialization_e2e_ms",
+        "anchoring_e2e_ms",
     ]
     init_rows = []
     for metric in init_metrics:
@@ -123,24 +121,6 @@ def main():
         w = csv.DictWriter(f, fieldnames=init_rows[0].keys())
         w.writeheader()
         w.writerows(init_rows)
-
-    # Aggregate the per-run means of post-anchoring verification metrics.
-    verify_rows = []
-    metric_names = sorted(set().union(*(v.keys() for v in all_verify)))
-    for metric in metric_names:
-        xs = []
-        unit = ""
-        for v in all_verify:
-            if metric in v:
-                xs.append(float(v[metric]["mean"]))
-                unit = str(v[metric]["unit"])
-        if xs:
-            verify_rows.append({"metric": metric, "unit": unit, **stats(xs)})
-
-    with (out / "summary_verification_across_runs.csv").open("w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=verify_rows[0].keys())
-        w.writeheader()
-        w.writerows(verify_rows)
 
     raw_rows = []
     for i, init in enumerate(all_init, 1):
@@ -168,7 +148,6 @@ def main():
 
     print(f"\nAll {args.repeats} runs completed successfully in {time.perf_counter()-total0:.1f}s.", flush=True)
     print(f"Summary: {out/'summary_besu_runs.csv'}", flush=True)
-    print(f"Verification: {out/'summary_verification_across_runs.csv'}", flush=True)
 
 if __name__ == "__main__":
     main()
