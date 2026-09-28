@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import argparse, csv, json, math, statistics, subprocess, sys, time
+import argparse, csv, json, math, os, statistics, subprocess, sys, time
 from pathlib import Path
 
 # Two-sided 95% Student-t critical values for df=1..30.
@@ -54,9 +54,12 @@ def main():
     ap.add_argument("--warmup", type=int, default=500)
     ap.add_argument("--domain-prefix", default="D01-A-besu")
     ap.add_argument("--output", default="results/besu_repeated")
-    ap.add_argument("--rpc", default=None)
+    ap.add_argument("--rpc", default=os.getenv("BESU_RPC_URL"))
     ap.add_argument("--artifact", default="build/DPKICommitmentRegistry.json")
     args = ap.parse_args()
+
+    if not args.rpc:
+        raise SystemExit("Besu RPC required: use --rpc or set BESU_RPC_URL")
 
     if args.repeats < 2:
         raise SystemExit("--repeats must be at least 2 for variability statistics")
