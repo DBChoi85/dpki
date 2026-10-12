@@ -1,228 +1,80 @@
-# DPKI E2E v3 — CRL / DPKI Separated Benchmark
+# DPKI — Verifiable Certificate Status Management
 
-## Purpose
+Research prototype and reproducibility materials for **A DPKI Architecture with Blockchain-Based Directory Commitments for Verifiable Certificate Status Management**.
 
-CRL and DPKI are measured in separate Python processes so that CRL object
-construction, memory allocation, garbage collection, and cache state do not
-contaminate DPKI timing.
+The prototype preserves X.509 PKI trust semantics and uses a SQLite status repository, deterministic Merkle commitments, and a QBFT-based Hyperledger Besu smart contract. An independent validator reconstructs the proposed commitment before anchoring. The blockchain does not validate X.509 certificates or hold private keys.
 
-Only the workload definition is shared:
+## Reproducibility data
 
-- total certificate population N
-- revoked ratio
-- deterministic revoked serial set
-- random seed
+The `results/` directory contains the **September 28, 2026** evaluation results used for the manuscript. Each scale uses N = 100, 1,000, 10,000, or 100,000 certificates with 10% revoked certificates, and ten independent runs.
 
-This makes the comparison reproducible while keeping the execution paths isolated.
+| Manuscript result | Public data |
+| --- | --- |
+| Figure 3: CRL generation, signature verification, DER size | `results/crl_<N>/raw_crl_benchmark.csv`, `summary_crl_benchmark.csv` |
+| Figure 3: DPKI commitment, proof generation/verification, sibling bytes | `results/repository_<N>/raw_repository_runs.csv`, `raw_repository_queries.csv`, `summary_repository.csv` |
+| Figure 4(a): commitment generation and independent pre-anchoring reconstruction | Repository summaries and `results/besu_scale/n_<N>/summary_besu_runs.csv` |
+| Figure 4(b): QBFT proposal/validation/anchoring latency | `results/besu_scale/n_<N>/raw_besu_runs.csv`, `summary_besu_runs.csv` |
+| Figure 4(c): post-anchoring proof generation, proof verification, root retrieval | `results/besu_scale/n_<N>/run_01` through `run_10/raw_verification_queries.csv` |
+| CPU and peak resident memory (N=100,000) | `resource_100k/resource_summary.csv` |
 
-## Measurement principle
+For Figure 4(c), calculate the per-run mean over each run's 5,000 verification queries, then report the mean and sample standard deviation over ten independent run-level means. **Do not substitute** standalone repository proof timings for Besu-integrated verification timings.
 
-### CRL process
-Measures only CRL-specific status-management costs:
-- CRL object construction/signing
-- DER serialization
-- DER parsing
-- signature verification
-- CRL DER byte size
+These are benchmark measurements, not an export of a production PKI. Workloads can be regenerated deterministically using `prepare_workload.py`; SQLite databases and private network configuration are intentionally not distributed. Results may be analyzed without access to the original Besu node. Re-executing the on-chain benchmark requires a separately configured Besu network.
 
-CA creation is outside the measured CRL-generation path.
+## Setup
 
-### DPKI process
-Measures:
-- real X.509 issuance
-- SQLite status registration
-- Merkle leaf/tree construction
-- Besu commitment proposal and independently validated anchoring
-- independent pre-anchoring Merkle-root reconstruction (`C_D == C_V`)
-- steady-state lookup/proof/root-read/local verification
-
-Do NOT directly compare DPKI total initialization E2E against CRL generation
-as if they represented identical workloads.
-
-For status-management comparison, compare:
-- CRL generation / CRL byte size
-versus
-- DPKI registry + leaf/tree + commitment / Merkle proof size
-
-## 1. Install
+Python and dependencies:
 
 ```bash
-pip install cryptography web3 py-solc-x
-export BESU_RPC_URL=http://<BESU_RPC_HOST>:8545
-export BESU_PRIVATE_KEY=0xUPDATER_TEST_KEY
-export BESU_VALIDATOR_PRIVATE_KEY=0xVALIDATOR_TEST_KEY
+python -m pip install -r requirements.txt
 ```
 
-Use the already deployed contract if `build/DPKICommitmentRegistry.json` exists.
-Otherwise:
+Configure a **local or disposable test** Besu QBFT network, deploy the contract, and provide two distinct funded test accounts. Never use production private keys.
 
 ```bash
+export BESU_RPC_URL="http://127.0.0.1:8545"
+export BESU_PRIVATE_KEY="<TEST_UPDATER_PRIVATE_KEY>"
+export BESU_VALIDATOR_PRIVATE_KEY="<TEST_VALIDATOR_PRIVATE_KEY>"
 python deploy_contract.py
 ```
 
-## 2. Prepare shared workload
+The deployment artifact is generated locally under `build/` and is not committed.
 
-100K / 10%:
-```bash
-python prepare_workload.py \
-  --n 100000 \
-  --revoke-ratio 0.10 \
-  --seed 20260903 \
-  --output workload_100k_10pct
-```
+## Reproduce the benchmark
 
-Final 1M / 10%:
-```bash
-python prepare_workload.py \
-  --n 1000000 \
-  --revoke-ratio 0.10 \
-  --seed 20260903 \
-  --output workload_1m_10pct
-```
-
-## 3. Run CRL separately
-
-Run from a fresh shell/process:
+Prepare workloads for all four scales, using the same deterministic seed and revocation ratio:
 
 ```bash
-python run_crl_benchmark.py \
-  --workload workload_100k_10pct \
-  --repeats 5 \
-  --output results_crl_100k_10pct
+for n in 100 1000 10000 100000; do
+  python prepare_workload.py --n "$n" --revoke-ratio 0.10 --seed 42 --output "workload_$n"
+done
 ```
 
-Final:
+Run CRL and repository measurements in **separate Python processes** to avoid cache and allocation interference:
 
 ```bash
-python run_crl_benchmark.py \
-  --workload workload_1m_10pct \
-  --repeats 5 \
-  --output results_crl_1m_10pct
+for n in 100 1000 10000 100000; do
+  python run_crl_benchmark.py --workload "workload_$n" --repeats 10 --output "results/crl_$n"
+  python run_repository_benchmark.py --workload "workload_$n" --repeats 10 --output "results/repository_$n"
+done
 ```
 
-Outputs:
-- raw_crl_benchmark.csv
-- summary_crl_benchmark.csv
-- environment_crl.json
-
-## 4. Run DPKI separately
-
-Use a separate fresh process:
+With a deployed contract and test network:
 
 ```bash
-python run_dpki_benchmark.py \
-  --workload workload_100k_10pct \
-  --queries 5000 \
-  --warmup 500 \
-  --domain D01-A \
-  --output results_dpki_100k_10pct
+python run_besu_scale_suite.py --repeats 10 --queries 5000 --warmup 500 --output results/besu_scale
 ```
 
-Final:
+The on-chain procedure is: propose the directory commitment; independently reconstruct the Merkle root from the repository snapshot; submit the validator's root; anchor only if both roots match; then verify Merkle proofs against the anchored commitment. The negative-path test is available in `negative_commitment_test.py`.
 
-```bash
-python run_dpki_benchmark.py \
-  --workload workload_1m_10pct \
-  --queries 5000 \
-  --warmup 500 \
-  --domain D01-A \
-  --output results_dpki_1m_10pct
-```
+### Measurement boundaries
 
-## Recommended execution order
+- CRL generation excludes CA creation.
+- DPKI repository commitment generation and Besu anchoring are separate stages.
+- Besu confirmation latency depends on the network and is not expected to reproduce bit-for-bit.
+- CPU and memory are host- and runtime-dependent.
+- The public dataset contains measured CSVs, not original certificate/private-key material or generated SQLite snapshots.
 
-For the final 1M run:
+## Security and publication hygiene
 
-1. prepare_workload.py
-2. close the shell/process if desired
-3. run_crl_benchmark.py
-4. finish CRL process completely
-5. optionally check free memory
-6. run_dpki_benchmark.py in a fresh process
-
-Do not import one benchmark from the other.
-Do not run both in one Python interpreter.
-
-## Final target
-
-- N = 1,000,000
-- revoked = 100,000
-- revocation ratio = 10%
-- 4-validator QBFT Besu
-- same revoked serial set for CRL and DPKI
-
-## 5. Pre-anchoring validation (v4 revision)
-
-This revision separates the DCM/updater role from an independent validator.
-The two roles MUST use different Besu accounts.
-
-```bash
-export BESU_PRIVATE_KEY=0xUPDATER_TEST_KEY
-export BESU_VALIDATOR_PRIVATE_KEY=0xVALIDATOR_TEST_KEY
-python deploy_contract.py
-```
-
-The deployment script authorizes the validator account in the contract. The
-benchmark then performs the following sequence:
-
-1. The DCM constructs the Merkle tree and proposes `C_D` with
-   `proposeCommitment(...)`.
-2. The validator opens the SQLite repository independently, reads records in
-   deterministic `leaf_index` order, reconstructs the Merkle tree, and derives
-   `C_V`.
-3. The validator submits `C_V` using `validateAndCommit(...)`.
-4. The smart contract anchors the commitment only when `C_D == C_V`; a mismatch causes the validation transaction to revert with `commitment validation failed`.
-5. Post-anchoring verification continues to use the repository record, Merkle
-   proof, and blockchain-anchored commitment.
-
-The smart contract intentionally does not parse X.509 objects or reconstruct a
-Merkle tree on-chain. Repository/status validation and Merkle reconstruction
-remain off-chain; the contract acts as the authorization and validation gate.
-
-Additional initialization metrics include proposal latency/gas, independent
-validator reconstruction time, validation latency/gas, and the pre-anchor root
-match result.
-
-### Trust assumption
-
-The independent validator requires read access to the same committed PKI
-repository snapshot. A CRL alone is not sufficient to reconstruct this
-benchmark's complete tree because the tree contains both VALID and REVOKED
-certificate-status records.
-
-
-### Negative validation behavior
-
-If the validator submits a root different from the DCM-proposed root,
-`validateAndCommit(...)` reverts with `commitment validation failed`. The pending
-proposal remains unanchored, so an inconsistent directory commitment cannot become
-the latest blockchain commitment. This behavior can be used as a negative test for
-the pre-anchoring validation mechanism.
-
-## Public repository configuration
-
-The repository intentionally contains no private keys, deployed contract addresses,
-transaction hashes, or private-network RPC endpoints. Configure a local/test Besu
-endpoint and two distinct funded test accounts through environment variables.
-
-```bash
-export BESU_RPC_URL=http://<BESU_RPC_HOST>:8545
-export BESU_PRIVATE_KEY=0xUPDATER_TEST_PRIVATE_KEY
-export BESU_VALIDATOR_PRIVATE_KEY=0xVALIDATOR_TEST_PRIVATE_KEY
-```
-
-Deployment artifacts under `build/`, generated workloads, SQLite databases, and
-benchmark result directories are excluded by `.gitignore`.
-
-### Negative pre-anchoring validation test
-
-After deployment, an intentionally mismatching validator root can be tested with:
-
-```bash
-python negative_commitment_test.py \
-  --contract 0xYOUR_DEPLOYED_CONTRACT_ADDRESS \
-  --artifact build/DPKICommitmentRegistry.json
-```
-
-A successful negative test reports both `Mismatch rejected: True` and
-`Anchored state unchanged: True`.
+Do not commit RPC hostnames or IP addresses, account addresses from private networks, contract deployments, transaction identifiers, private keys, local absolute paths, or database snapshots. Environment variables and `.env.example` provide configuration placeholders. Historical commits may still contain values removed from the current tree; removing files in a PR does **not** erase Git history. If an exposed endpoint or credential is still active, rotate or restrict it separately.
