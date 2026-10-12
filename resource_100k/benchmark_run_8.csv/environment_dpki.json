@@ -11,11 +11,7 @@
       100000
     ]
   },
-  "rpc": "http://220.149.235.59:8545",
   "chain_id": 1337,
-  "contract": "0x9FBDa871d559710256a2502A2517b794B482Db40",
-  "updater": "0x627306090abaB3A6e1400e9345bC60c78a8BEf57",
-  "validator": "0xf17f52151EbEF6C7334FAD080c5704D77216b732",
   "pre_anchoring_validation": "independent SQLite read + deterministic Merkle reconstruction",
   "queries": 5000,
   "warmup": 500

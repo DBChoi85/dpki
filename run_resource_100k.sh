@@ -5,7 +5,7 @@ set -e
 N=100000
 RUNS=10
 
-WORKLOAD="/home/dbc-gpu/dpki_experiment/dpki/workload_100000"
+WORKLOAD="${WORKLOAD:-workload_100000}"
 
 RESULT_DIR="resource_100k"
 SUMMARY="${RESULT_DIR}/resource_summary.csv"
