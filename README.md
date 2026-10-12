@@ -17,6 +17,10 @@ The `results/` directory contains the **September 28, 2026** evaluation results 
 | Figure 4(c): post-anchoring proof generation, proof verification, root retrieval | `results/besu_scale/n_<N>/run_01` through `run_10/raw_verification_queries.csv` |
 | CPU and peak resident memory (N=100,000) | `resource_100k/resource_summary.csv` |
 
+### Resource-utilization remeasurement (October 12, 2026)
+
+The previously published `resource_100k/resource_summary.csv` (recorded under Anaconda Python 3.13.12) was **replaced** with a fresh ten-run measurement using Anaconda Python **3.14.7** in the dedicated Conda `DPKI` environment. The resource results were remeasured after cleanup of the earlier resource artifacts, to align the recorded Python version with the main benchmark runtime. The updated CSV reports N=100,000, 10 runs, mean CPU utilization **67.3%**, mean peak RSS **176.64 MiB**, and mean wall-clock duration **40.12 s**. The resource measurements depend on the runtime, host, operating system, and Besu network; they should not be interpreted as an isolated Python-version comparison. Previous values remain accessible through Git history, but the current CSV is the replacement dataset.
+
 For Figure 4(c), calculate the per-run mean over each run's 5,000 verification queries, then report the mean and sample standard deviation over ten independent run-level means. **Do not substitute** standalone repository proof timings for Besu-integrated verification timings.
 
 These are benchmark measurements, not an export of a production PKI. Workloads can be regenerated deterministically using `prepare_workload.py`; SQLite databases and private network configuration are intentionally not distributed. Results may be analyzed without access to the original Besu node. Re-executing the on-chain benchmark requires a separately configured Besu network.
