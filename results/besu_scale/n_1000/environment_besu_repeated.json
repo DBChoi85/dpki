@@ -1,0 +1,10 @@
+{
+  "workload": "workload_1000",
+  "repeats": 10,
+  "queries_per_run": 5000,
+  "warmup_per_run": 500,
+  "domain_prefix": "DPKI-1000",
+  "artifact": "build/DPKICommitmentRegistry.json",
+  "rpc_source": "--rpc",
+  "ci_method": "two-sided 95% Student-t interval over independent run-level measurements"
+}
